@@ -8,6 +8,7 @@ services:
       - "4200:4200"
     environment:
       - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_UI_API_URL=http://62.171.161.104:4200/api
       - PREFECT_API_DATABASE_CONNECTION_URL=sqlite+aiosqlite:////data/prefect.db
     volumes:
       - prefect-data:/data
