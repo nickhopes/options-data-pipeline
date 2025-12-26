@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Prefect Server (UI + API)
+  prefect-server:
+    image: prefecthq/prefect:2-python3.11
+    container_name: pipeline-prefect-server
+    restart: unless-stopped
+    ports:
+      - "4200:4200"
+    environment:
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_API_DATABASE_CONNECTION_URL=sqlite+aiosqlite:////data/prefect.db
+    volumes:
+      - prefect-data:/data
+    command: prefect server start --host 0.0.0.0
+    networks:
+      - pipeline-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4200/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Pipeline Worker (runs the actual jobs)
+  pipeline-worker:
+    build: .
+    container_name: pipeline-worker
+    restart: unless-stopped
+    environment:
+      - PREFECT_API_URL=http://prefect-server:4200/api
+      - DB_HOST=${DB_HOST:-62.171.161.104}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-hexdb}
+      - DB_USER=${DB_USER:-hexuser}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - pipeline-network
+
+networks:
+  pipeline-network:
+    driver: bridge
+
+volumes:
+  prefect-data:
