@@ -5,11 +5,13 @@ Configures and serves all Prefect deployments.
 
 import logging
 import sys
+from datetime import timedelta
 
 from prefect import serve
 
 from pipeline.flows.collection import (
     binance_sync_flow,
+    binance_1m_sync_flow,
     deribit_sync_flow,
     hyperliquid_sync_flow,
 )
@@ -65,6 +67,14 @@ def main():
         description="Sync BTC option trades from Deribit",
     )
 
+    # Binance 1-minute OHLCV sync - every 5 seconds
+    binance_1m_deployment = binance_1m_sync_flow.to_deployment(
+        name="binance-1m-every-5sec",
+        interval=timedelta(seconds=5),
+        tags=["collection", "binance", "1m"],
+        description="Sync BTC/ETH/SOL 1-minute OHLCV from Binance every 5 seconds",
+    )
+
     # ========================================================================
     # Aggregation Deployments
     # ========================================================================
@@ -109,7 +119,8 @@ def main():
     logger.info("Starting Prefect serve with all deployments...")
     logger.info("")
     logger.info("Configured schedules:")
-    logger.info("  - Binance sync:       */5 * * * * (every 5 min)")
+    logger.info("  - Binance 1m sync:    every 5 seconds")
+    logger.info("  - Binance 1h sync:    */5 * * * * (every 5 min)")
     logger.info("  - Hyperliquid sync:   0 * * * *   (hourly)")
     logger.info("  - Deribit sync:       0 * * * *   (hourly)")
     logger.info("  - Option OHLC:        5 * * * *   (hourly at :05)")
@@ -121,6 +132,7 @@ def main():
     logger.info("")
 
     serve(
+        binance_1m_deployment,
         binance_deployment,
         hyperliquid_deployment,
         deribit_deployment,
