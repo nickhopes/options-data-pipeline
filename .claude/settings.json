@@ -1,0 +1,10 @@
+{
+  "allowedTools": [
+    "Bash(sshpass -p '0aI6Zi4M4EZh' ssh -o StrictHostKeyChecking=no root@62.171.161.104 *)",
+    "Bash(git *)",
+    "Bash(docker *)",
+    "Read(**/options-data-pipeline/**)",
+    "Edit(**/options-data-pipeline/**)",
+    "Write(**/options-data-pipeline/**)"
+  ]
+}
