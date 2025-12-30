@@ -115,10 +115,9 @@ src/pipeline/
 
 ## Known Issues
 
-### 1. SQLite "Database Locked" Errors
-- **Cause**: Prefect server uses SQLite which struggles with concurrent writes
-- **Impact**: ~10-15% flow run failures
-- **Solution**: Migrate Prefect to PostgreSQL backend (future improvement)
+### 1. ~~SQLite "Database Locked" Errors~~ (FIXED)
+- **Status**: Migrated to PostgreSQL on 2024-12-30
+- **Impact**: No more "database is locked" errors
 
 ### 2. Deribit API 400 Errors for Future Dates
 - **Cause**: Requesting trades for dates with no data yet
