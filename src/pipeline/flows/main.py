@@ -12,6 +12,7 @@ from prefect import serve
 from pipeline.flows.collection import (
     binance_sync_flow,
     binance_1m_sync_flow,
+    binance_1m_gap_repair_flow,
     deribit_sync_flow,
     hyperliquid_sync_flow,
 )
@@ -75,6 +76,14 @@ def main():
         description="Sync BTC/ETH/SOL 1-minute OHLCV from Binance every 5 seconds",
     )
 
+    # Binance 1-minute gap repair - every hour at :30
+    binance_1m_gap_repair_deployment = binance_1m_gap_repair_flow.to_deployment(
+        name="binance-1m-gap-repair-hourly",
+        cron="30 * * * *",
+        tags=["maintenance", "binance", "1m", "repair"],
+        description="Check and repair gaps in 1-minute OHLC data every hour",
+    )
+
     # ========================================================================
     # Aggregation Deployments
     # ========================================================================
@@ -120,6 +129,7 @@ def main():
     logger.info("")
     logger.info("Configured schedules:")
     logger.info("  - Binance 1m sync:    every 5 seconds")
+    logger.info("  - Binance 1m repair:  30 * * * *  (hourly at :30)")
     logger.info("  - Binance 1h sync:    */5 * * * * (every 5 min)")
     logger.info("  - Hyperliquid sync:   0 * * * *   (hourly)")
     logger.info("  - Deribit sync:       0 * * * *   (hourly)")
@@ -133,6 +143,7 @@ def main():
 
     serve(
         binance_1m_deployment,
+        binance_1m_gap_repair_deployment,
         binance_deployment,
         hyperliquid_deployment,
         deribit_deployment,

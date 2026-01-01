@@ -344,3 +344,192 @@ def get_status() -> dict:
         }
 
     return status
+
+
+# ============================================================================
+# Gap Detection and Repair
+# ============================================================================
+
+
+def find_gaps(table: str, min_gap_minutes: int = 5, max_age_days: int = 7) -> list[dict]:
+    """
+    Find gaps in 1-minute data.
+
+    Args:
+        table: Table name to check
+        min_gap_minutes: Minimum gap size to report (ignore small gaps)
+        max_age_days: Only check gaps within this many days (0 = all time)
+
+    Returns:
+        List of gap dictionaries with start, end, and missing_minutes
+    """
+    db = get_db()
+
+    age_filter = ""
+    if max_age_days > 0:
+        age_filter = f"WHERE timestamp > NOW() - interval '{max_age_days} days'"
+
+    query = f"""
+    WITH time_series AS (
+        SELECT
+            timestamp as ts,
+            LAG(timestamp) OVER (ORDER BY timestamp) as prev_ts
+        FROM {table}
+        {age_filter}
+    )
+    SELECT
+        prev_ts as gap_start,
+        ts as gap_end,
+        EXTRACT(EPOCH FROM (ts - prev_ts))/60 as gap_minutes
+    FROM time_series
+    WHERE ts - prev_ts > interval '{min_gap_minutes} minutes'
+    ORDER BY gap_minutes DESC
+    """
+
+    with db.cursor() as cursor:
+        cursor.execute(query)
+        results = cursor.fetchall()
+
+    gaps = []
+    for row in results:
+        gaps.append({
+            "gap_start": row["gap_start"],
+            "gap_end": row["gap_end"],
+            "missing_minutes": int(row["gap_minutes"]) - 1,
+        })
+
+    return gaps
+
+
+def fill_gap(symbol: str, gap_start: datetime, gap_end: datetime, delay: float = 0.05) -> dict:
+    """
+    Fill a specific gap in the data.
+
+    Args:
+        symbol: Trading pair (e.g., 'BTCUSDT')
+        gap_start: Start of gap (last known record before gap)
+        gap_end: End of gap (first known record after gap)
+        delay: Delay between API requests
+
+    Returns:
+        Dict with fill results
+    """
+    if symbol not in SYMBOL_CONFIG:
+        raise ValueError(f"Unknown symbol: {symbol}")
+
+    config = SYMBOL_CONFIG[symbol]
+    table = config["table"]
+
+    # Start 1 minute after gap_start
+    start_ms = int(gap_start.timestamp() * 1000) + 60000
+    end_ms = int(gap_end.timestamp() * 1000)
+
+    total_inserted = 0
+    total_updated = 0
+    batches = 0
+
+    current = start_ms
+    while current < end_ms:
+        klines = get_klines(symbol, current, end_time=end_ms, limit=1000)
+
+        if not klines or len(klines) == 0:
+            break
+
+        inserted, updated = upsert_klines(table, klines)
+        total_inserted += inserted
+        total_updated += updated
+        batches += 1
+
+        current = klines[-1][0] + 60000
+        time.sleep(delay)
+
+    logger.info(f"{symbol}: Filled gap {gap_start} -> {gap_end}: {total_inserted} inserted, {total_updated} updated")
+
+    return {
+        "symbol": symbol,
+        "gap_start": gap_start.isoformat(),
+        "gap_end": gap_end.isoformat(),
+        "inserted": total_inserted,
+        "updated": total_updated,
+        "batches": batches,
+    }
+
+
+def repair_gaps(min_gap_minutes: int = 5, max_age_days: int = 7) -> dict:
+    """
+    Find and fill all gaps in recent data for all symbols.
+
+    Args:
+        min_gap_minutes: Minimum gap size to repair
+        max_age_days: Only repair gaps within this many days
+
+    Returns:
+        Dict with repair results for each symbol
+    """
+    results = {}
+
+    for symbol, config in SYMBOL_CONFIG.items():
+        table = config["table"]
+        key = symbol.replace("USDT", "").lower()
+
+        # Find gaps
+        gaps = find_gaps(table, min_gap_minutes, max_age_days)
+
+        if not gaps:
+            results[key] = {
+                "status": "ok",
+                "gaps_found": 0,
+                "gaps_filled": 0,
+            }
+            continue
+
+        logger.info(f"{symbol}: Found {len(gaps)} gaps to repair")
+
+        filled = 0
+        total_inserted = 0
+
+        for gap in gaps:
+            try:
+                result = fill_gap(symbol, gap["gap_start"], gap["gap_end"])
+                if result["inserted"] > 0:
+                    filled += 1
+                    total_inserted += result["inserted"]
+            except Exception as e:
+                logger.error(f"{symbol}: Failed to fill gap {gap}: {e}")
+
+        results[key] = {
+            "status": "repaired" if filled > 0 else "ok",
+            "gaps_found": len(gaps),
+            "gaps_filled": filled,
+            "records_inserted": total_inserted,
+        }
+
+    return results
+
+
+def get_gap_summary() -> dict:
+    """
+    Get summary of gaps in all tables.
+
+    Returns:
+        Dict with gap statistics for each symbol
+    """
+    summary = {}
+
+    for symbol, config in SYMBOL_CONFIG.items():
+        table = config["table"]
+        key = symbol.replace("USDT", "").lower()
+
+        # Recent gaps (last 7 days)
+        recent_gaps = find_gaps(table, min_gap_minutes=2, max_age_days=7)
+
+        # Total gap count
+        all_gaps = find_gaps(table, min_gap_minutes=60, max_age_days=0)
+
+        summary[key] = {
+            "recent_gaps_7d": len(recent_gaps),
+            "recent_missing_minutes": sum(g["missing_minutes"] for g in recent_gaps),
+            "large_gaps_all_time": len(all_gaps),
+        }
+
+    return summary

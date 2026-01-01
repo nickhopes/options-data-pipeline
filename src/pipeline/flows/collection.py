@@ -240,3 +240,59 @@ def binance_1m_backfill_flow():
 
     print(f"Backfill completed: {results}")
     return results
+
+
+# ============================================================================
+# Binance 1-Minute Gap Repair Tasks
+# ============================================================================
+
+
+@task(
+    name="repair-1m-gaps",
+    retries=2,
+    retry_delay_seconds=30,
+    tags=["binance", "1m", "repair", "maintenance"],
+)
+def repair_1m_gaps_task():
+    """Find and repair gaps in 1-minute data."""
+    return binance_1m.repair_gaps(min_gap_minutes=5, max_age_days=7)
+
+
+@task(
+    name="get-1m-gap-summary",
+    tags=["binance", "1m", "monitoring"],
+)
+def get_1m_gap_summary_task():
+    """Get summary of gaps in 1-minute data."""
+    return binance_1m.get_gap_summary()
+
+
+@flow(name="binance-1m-gap-repair-flow", log_prints=True)
+def binance_1m_gap_repair_flow():
+    """
+    Check for and repair gaps in 1-minute OHLC data.
+    Runs hourly to ensure data integrity.
+    """
+    print("Checking for gaps in 1-minute data...")
+
+    # Get current gap summary
+    summary = get_1m_gap_summary_task()
+    print(f"Gap summary: {summary}")
+
+    # Check if any recent gaps exist
+    has_gaps = any(s.get("recent_gaps_7d", 0) > 0 for s in summary.values())
+
+    if not has_gaps:
+        print("No recent gaps found. Data is complete.")
+        return {"status": "ok", "summary": summary, "repaired": None}
+
+    # Repair gaps
+    print("Found gaps, starting repair...")
+    repair_result = repair_1m_gaps_task()
+    print(f"Repair completed: {repair_result}")
+
+    return {
+        "status": "repaired",
+        "summary": summary,
+        "repaired": repair_result,
+    }
